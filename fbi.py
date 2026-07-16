@@ -362,6 +362,6 @@ ws.freeze_panes = "A2"
 
 output_path = "FBI_Wanted.xlsx"
 wb.save(output_path)
-
+print("hi")
 
 print(f"\nSaved {len(all_people)} records across {len(categories)} categories to {output_path}")
