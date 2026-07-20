@@ -1,3 +1,4 @@
+#cbi_announced_new_reward
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -315,15 +316,22 @@ def cbi_new_rewards():
         record = {}
 
         for box in boxes:
+            print("=" * 80)
+            print(box.get_attribute("outerHTML"))
+
             try:
                 label = box.find_element(By.XPATH, "./p[1]").text.strip().replace(":", "")
                 value = box.find_element(By.XPATH, "./p[2]").text.strip()
 
-                record[label] = value
-            except:
-                pass
+                print("LABEL :", label)
+                print("VALUE :", value)
 
-        print(record)
+                record[label] = value
+
+            except Exception as e:
+                print("ERROR :", e)
+
+        print(record.keys())
 
         name, alias = split_name_alias(record.get("Name", ""))
         father_name = record.get("Father Name", "")
@@ -340,6 +348,7 @@ def cbi_new_rewards():
             father_name = ""
         else:
             father_name = re.sub(r"\s*@\s*", "; ", father_name)
+            father_name = re.sub(r"^(late\s+|late\.?\s+|mr\.?\s+|mrs\.?\s+|ms\.?\s+|shri\s+|sh\.?\s+|smt\.?\s+)+","",father_name,flags=re.IGNORECASE).strip()
 
         dob = format_dob(record.get("Date Of Birth", ""))
         age = calculate_age(dob)
@@ -389,7 +398,7 @@ def cbi_new_rewards():
             "DETAILS": details,
             "WEB_LINK": href,
             "VIOLATION_ID": "",
-            "SOURCE": "CBI",
+            "SOURCE": "CBI ANNOUNCED REWARDS",
             "Alias": alias,
             "Associates": "",
             "MainActivity": "",
