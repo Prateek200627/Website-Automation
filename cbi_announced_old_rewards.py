@@ -1,12 +1,35 @@
 import os
+import sys
 from urllib.parse import urljoin
-
+from flask import logging
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import re
+import logging
 
+# Get executable/script name
+if getattr(sys, "frozen", False):
+    app_name = os.path.splitext(os.path.basename(sys.executable))[0]
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+ENABLE_LOGS = "withlogs" in app_name.lower()
+
+if ENABLE_LOGS:
+    logs_folder = os.path.join(app_dir, "logs")
+    os.makedirs(logs_folder, exist_ok=True)
+
+    logging.basicConfig(
+        filename=os.path.join(logs_folder, "CBI_Old_Records.log"),
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+else:
+    logging.disable(logging.CRITICAL)
 
 URL = "https://cbi.gov.in/old-records"
 EXCEL_FILE = "CBI_Old_Records.xlsx"
@@ -18,20 +41,59 @@ HEADERS = {
 import re
 
 def clean_name(name):
-    pattern = r'^(Mr\.?|Mrs\.?|Ms\.?|Miss|Shri|Sh\.?|Smt\.?|Sri|Dr\.?)\s+'
+    pattern = r'^(Mr\.?|Mrs\.?|Ms\.?|Miss|Shri|Sh\.?|Smt\.?|Sri|Dr\.?|Shri\.?)\s+'
     return re.sub(pattern, '', name, flags=re.IGNORECASE).strip()
+
+def clean_father_name(father_name):
+    if not father_name:
+        return ""
+
+    father_name = father_name.strip()
+
+    # Remove invalid values
+    if father_name.upper() in [
+        "N/A", "NA", "NIL", "NONE", "NAME N/A", "NAM", "-"
+    ]:
+        return ""
+
+    # Remove common prefixes repeatedly
+    pattern = (
+        r'^(?:'
+        r'late\s+'
+        r'|mr\.?\s+'
+        r'|mrs\.?\s+'
+        r'|ms\.?\s+'
+        r'|miss\s+'
+        r'|shri\.?\s+'
+        r'|sh\.?\s+'
+        r'|smt\.?\s+'
+        r'|sri\s+'
+        r'|dr\.?\s+'
+        r')+'
+    )
+
+    father_name = re.sub(pattern, "", father_name, flags=re.IGNORECASE)
+
+    # Remove extra spaces
+    father_name = re.sub(r"\s+", " ", father_name).strip()
+
+    return father_name
 
 def get_soup():
     """
     Fetch the webpage and return BeautifulSoup object.
     """
     response = requests.get(URL, headers=HEADERS)
+    logging.info("Website opened successfully")
     response.raise_for_status()
 
     return BeautifulSoup(response.text, "html.parser")
 
 
 def extract_records(soup):
+
+    logging.info("=" * 80)
+    logging.info("CBI OLD RECORDS SCRAPER STARTED")
     """
     Extract all wanted person records from the webpage.
     """
@@ -41,6 +103,7 @@ def extract_records(soup):
     cards = soup.find_all("div", class_="oldRecordContent")
 
     print(f"Records Found : {len(cards)}")
+    logging.info(f"Records Found : {len(cards)}")
 
     for card in cards:
 
@@ -75,7 +138,7 @@ def extract_records(soup):
             elif any(sep in father_name for sep in ["/", "&", ",", ";"]):
                 father_remarks = f"Father Name: {father_name}"
                 father_name = ""
-
+            
         boxes = card.find_all("div", class_="box")
 
         for box in boxes:
@@ -91,15 +154,14 @@ def extract_records(soup):
                     name = value
 
                 elif key == "Father Name":
-                    father_name = value
-                    if father_name.upper() == "N/A":
-                        father_name = ""
+                    father_name = clean_father_name(value)
 
                 elif key == "Gender":
                     gender = value
 
                 elif key == "Charges":
-                    charges = value
+                    charges = " ".join(value.split())
+                    # charges = value
 
                 elif key == "Branch Name":
                     branch = value
@@ -123,7 +185,10 @@ def extract_records(soup):
                 p = box.find("p")
 
                 if p:
-                    address = p.get_text(" ", strip=True)
+                    address = p.get_text("\n", strip=True)
+                    address = re.sub(r'\n+', '; ', address)
+                    address = re.sub(r'\s*;\s*', '; ', address)
+                    address = re.sub(r'\s+', ' ', address).strip()
 
             # PDF Link
             a = box.find("a")
@@ -158,7 +223,7 @@ def extract_records(soup):
             "ADD_COUNTRY": "",
             "State": "",
             "Nationalities": "",
-            "ADDRESS": "",
+            "ADDRESS": address if address else "",
             "Identity Number": "",
             "Identity Type": "",
             "REF_DATE": "",
@@ -172,14 +237,20 @@ def extract_records(soup):
             "Citizenship information": "",
             "STATUS": "",
             "Rem1": f"S/o {father_name}".replace("@", "; ") if father_name else "",
-            "Rem2": f"Address to which information may be given - {address}" if address else "",
+            "Rem2": "",
             "Rem3": f"Branch Name - {branch}" if branch else "",
             "Remarks": father_remarks
         }
 
         records.append(data)
 
+        logging.info(f"Added : {name}")
+
     return records
+
+logging.info("=" * 80)
+logging.info("SCRAPER COMPLETED")
+logging.info("=" * 80)
 
 def save_to_excel(records):
 
@@ -234,12 +305,21 @@ def save_to_excel(records):
     else:
         final_df = old_df
 
+    final_df.to_excel(EXCEL_FILE, index=False)
+
     print("\n========== SUMMARY ==========")
     print(f"Scraped Records : {len(new_df)}")
     print(f"New Records     : {added}")
     print(f"Duplicates      : {skipped}")
     print(f"Total in Excel  : {len(final_df)}")
     print("=============================")
+    logging.info("=" * 80)
+    logging.info("SUMMARY")
+    logging.info(f"Scraped Records : {len(new_df)}")
+    logging.info(f"New Records     : {added}")
+    logging.info(f"Duplicate Records: {skipped}")
+    logging.info(f"Total in Excel  : {len(final_df)}")
+    logging.info("=" * 80)
 
     
 def main():
